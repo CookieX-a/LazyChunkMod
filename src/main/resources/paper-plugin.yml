@@ -1,0 +1,9 @@
+main: x.cookie.lazychunk.LazychunkMod
+name: LazyChunk
+version: 1.0.0
+authors: [MCreator]
+bootstrapper: x.cookie.lazychunk.LazychunkModBootstrap
+website: https://mcreator.net
+api-version: 1.21
+
+commands:
