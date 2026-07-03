@@ -21,10 +21,10 @@
   "workspaceSettings": {
     "modid": "lazychunk",
     "modName": "LazyChunk",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "description": "Allow server owners with poor hardware to easily run the server",
-    "author": "MCreator",
-    "websiteURL": "https://mcreator.net",
+    "author": "MCreator,CookieX-a",
+    "websiteURL": "https://github.com/CookieX-a/LazyChunkMod",
     "license": "MIT License",
     "serverSideOnly": false,
     "requiredMods": [],
