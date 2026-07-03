@@ -1,8 +1,9 @@
 main: x.cookie.lazychunk.LazychunkMod
 name: LazyChunk
-version: 1.0.0
+version: 0.1.1
 authors: [MCreator]
 bootstrapper: x.cookie.lazychunk.LazychunkModBootstrap
+description: Allow server owners with poor hardware to easily run the server
 website: https://mcreator.net
 api-version: 1.21
 

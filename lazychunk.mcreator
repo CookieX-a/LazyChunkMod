@@ -21,16 +21,18 @@
   "workspaceSettings": {
     "modid": "lazychunk",
     "modName": "LazyChunk",
-    "version": "1.0.0",
+    "version": "0.1.1",
+    "description": "Allow server owners with poor hardware to easily run the server",
     "author": "MCreator",
     "websiteURL": "https://mcreator.net",
-    "license": "Not specified",
+    "license": "MIT License",
     "serverSideOnly": false,
     "requiredMods": [],
     "dependencies": [],
     "dependants": [],
     "mcreatorDependencies": [],
     "currentGenerator": "paper-1.21.8",
+    "credits": "Created using mod maker MCreator - https://mcreator.net/about",
     "modElementsPackage": "x.cookie.lazychunk"
   },
   "mcreatorVersion": 202600114619
