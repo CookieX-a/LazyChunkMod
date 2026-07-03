@@ -80,4 +80,4 @@ MIT License – see LICENSE file.
 
 ## Author
 
-Cookie
+CookieX-a
