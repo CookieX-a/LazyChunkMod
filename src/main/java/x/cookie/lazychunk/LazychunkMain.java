@@ -23,28 +23,23 @@ public final class LazychunkMain extends JavaPlugin implements Listener {
     private final Map<Player, Location> lastLocations = new ConcurrentHashMap<>();
     private volatile Map<World, Double> worldMaxSpeed = new ConcurrentHashMap<>();
 
-    // Lazy chunk records: coordinate string -> {unload timestamp, retry attempts}
     private final Map<String, ChunkRecord> unloadedChunks = new ConcurrentHashMap<>();
-    // Cooldown chunks: coordinate string -> expiry timestamp
     private final Map<String, Long> cooldownChunks = new ConcurrentHashMap<>();
 
-    // Current memory usage (0.0 ~ 1.0)
     private volatile double currentMemoryUsage = 0.0;
 
-    // ======================== Configuration Constants ========================
-    private static final double SPEED_THRESHOLD = 6.0;           // chunks per second
-    private static final long COOLDOWN_MILLIS = 5000L;           // cooldown in milliseconds
-    private static final long FORCE_LOAD_AFTER = 30000L;         // force load after ms
-    private static final double MAX_SPEED = 20.0;                // speed cap
-    private static final double TELEPORT_THRESHOLD = 50.0;       // distance considered teleport
-    private static final int MAX_UNLOADED_SIZE = 10000;          // max lazy records
-    private static final int MAX_RETRY_ATTEMPTS = 3;             // async load max retries
-    private static final boolean KEEP_ENTITIES = false;          // true = keep entities (don't unload)
-
-    // Memory thresholds
-    private static final double MEMORY_LOW = 0.40;    // below this: no lazy unloading, force load all
-    private static final double MEMORY_HIGH_ENABLE = 0.70; // above this: lazy unloading allowed
-    private static final double MEMORY_CRITICAL = 0.90; // above this: prevent loading lazy chunks
+    // ======================== Configurable Variables ========================
+    private static double SPEED_THRESHOLD;
+    private static long COOLDOWN_MILLIS;
+    private static long FORCE_LOAD_AFTER;
+    private static double MAX_SPEED;
+    private static double TELEPORT_THRESHOLD;
+    private static int MAX_UNLOADED_SIZE;
+    private static int MAX_RETRY_ATTEMPTS;
+    private static boolean KEEP_ENTITIES;
+    private static double MEMORY_LOW;
+    private static double MEMORY_HIGH_ENABLE;
+    private static double MEMORY_CRITICAL;
 
     private static class ChunkRecord {
         final long timestamp;
@@ -58,16 +53,28 @@ public final class LazychunkMain extends JavaPlugin implements Listener {
     // ======================== Lifecycle ========================
     @Override
     public void onEnable() {
+        // Load configuration
+        LoadConfig.load(this);
+        SPEED_THRESHOLD = LoadConfig.getSpeedThreshold();
+        COOLDOWN_MILLIS = LoadConfig.getCooldownMillis();
+        FORCE_LOAD_AFTER = LoadConfig.getForceLoadAfter();
+        MAX_SPEED = LoadConfig.getMaxSpeed();
+        TELEPORT_THRESHOLD = LoadConfig.getTeleportThreshold();
+        MAX_UNLOADED_SIZE = LoadConfig.getMaxUnloadedSize();
+        MAX_RETRY_ATTEMPTS = LoadConfig.getMaxRetryAttempts();
+        KEEP_ENTITIES = LoadConfig.getKeepEntities();
+        MEMORY_LOW = LoadConfig.getMemoryLow();
+        MEMORY_HIGH_ENABLE = LoadConfig.getMemoryHighEnable();
+        MEMORY_CRITICAL = LoadConfig.getMemoryCritical();
+
         getServer().getPluginManager().registerEvents(this, this);
 
         // Task 1: Calculate max speed & memory usage every second
         new BukkitRunnable() {
             @Override
             public void run() {
-                // Update memory usage
                 updateMemoryUsage();
 
-                // Calculate world speeds
                 Map<World, Double> worldSpeeds = new HashMap<>();
                 for (Player player : Bukkit.getOnlinePlayers()) {
                     Location current = player.getLocation();
@@ -85,17 +92,12 @@ public final class LazychunkMain extends JavaPlugin implements Listener {
                 }
                 worldMaxSpeed = new ConcurrentHashMap<>(worldSpeeds);
 
-                // --- Memory-based decisions ---
                 if (currentMemoryUsage < MEMORY_LOW) {
-                    // Memory is abundant: force load all lazy chunks
                     loadAllPendingChunks();
-                    // Also clear cooldowns to allow normal behaviour
                     cooldownChunks.clear();
                 } else if (currentMemoryUsage > MEMORY_CRITICAL) {
-                    // Memory critical: do NOT load any lazy chunks (they stay unloaded)
-                    // Nothing to do here; loading will be blocked in forceLoadPendingChunks()
+                    // Critical: do not load
                 } else {
-                    // Normal range: speed recovery triggers loading
                     for (Map.Entry<World, Double> entry : worldSpeeds.entrySet()) {
                         if (entry.getValue() <= SPEED_THRESHOLD) {
                             forceLoadPendingChunks(entry.getKey());
@@ -103,22 +105,19 @@ public final class LazychunkMain extends JavaPlugin implements Listener {
                     }
                 }
 
-                // Clean expired cooldowns (always)
                 long now = System.currentTimeMillis();
                 cooldownChunks.entrySet().removeIf(e -> e.getValue() <= now);
 
-                // Trim unloaded chunks if too large
                 if (unloadedChunks.size() > MAX_UNLOADED_SIZE) {
                     trimUnloadedChunks();
                 }
             }
-        }.runTaskTimer(this, 0L, 20L); // 20 ticks = 1 second
+        }.runTaskTimer(this, 0L, 20L);
 
-        // Task 2: Force load timeout chunks every 10 seconds (but only if memory allows)
+        // Task 2: Force load timeout chunks every 10 seconds
         new BukkitRunnable() {
             @Override
             public void run() {
-                // Skip if memory is critical (>90%)
                 if (currentMemoryUsage > MEMORY_CRITICAL) {
                     return;
                 }
@@ -141,7 +140,7 @@ public final class LazychunkMain extends JavaPlugin implements Listener {
                     }
                 }
             }
-        }.runTaskTimer(this, 0L, 200L); // 200 ticks = 10 seconds
+        }.runTaskTimer(this, 0L, 200L);
     }
 
     @Override
@@ -161,7 +160,6 @@ public final class LazychunkMain extends JavaPlugin implements Listener {
         Runtime runtime = Runtime.getRuntime();
         long maxMemory = runtime.maxMemory();
         if (maxMemory == Long.MAX_VALUE) {
-            // No limit, treat as 0 usage
             currentMemoryUsage = 0.0;
             return;
         }
@@ -172,7 +170,6 @@ public final class LazychunkMain extends JavaPlugin implements Listener {
     // ======================== Event Listeners ========================
     @EventHandler
     public void onChunkLoad(ChunkLoadEvent event) {
-        // If memory is low (<40%), never unload
         if (currentMemoryUsage < MEMORY_LOW) {
             return;
         }
@@ -186,7 +183,6 @@ public final class LazychunkMain extends JavaPlugin implements Listener {
             return;
         }
 
-        // Only unload if memory usage is above 70%
         if (currentMemoryUsage < MEMORY_HIGH_ENABLE) {
             return;
         }
@@ -198,9 +194,7 @@ public final class LazychunkMain extends JavaPlugin implements Listener {
             return;
         }
 
-        // Schedule unload on next tick to avoid interfering with chunk loading
         Bukkit.getScheduler().runTask(this, () -> {
-            // Re-check cooldown
             Long expire = cooldownChunks.get(chunkKey);
             if (expire != null && System.currentTimeMillis() < expire) {
                 return;
@@ -229,7 +223,6 @@ public final class LazychunkMain extends JavaPlugin implements Listener {
 
     // ======================== Core Methods ========================
 
-    /** Check if chunk can be unloaded (must be called on main thread) */
     private boolean shouldUnload(Chunk chunk) {
         for (Entity entity : chunk.getEntities()) {
             if (entity instanceof Player) {
@@ -245,15 +238,12 @@ public final class LazychunkMain extends JavaPlugin implements Listener {
         return true;
     }
 
-    /** Load all pending chunks regardless of world (used when memory is low) */
     private void loadAllPendingChunks() {
         if (unloadedChunks.isEmpty()) {
             return;
         }
-        // Make a copy to avoid concurrent modification
         List<String> keys = new ArrayList<>(unloadedChunks.keySet());
         for (String key : keys) {
-            // Remove from map first
             unloadedChunks.remove(key);
             String[] parts = key.split(",");
             if (parts.length == 3) {
@@ -261,7 +251,6 @@ public final class LazychunkMain extends JavaPlugin implements Listener {
                 if (world != null) {
                     int x = Integer.parseInt(parts[1]);
                     int z = Integer.parseInt(parts[2]);
-                    // Load asynchronously
                     world.getChunkAtAsync(x, z).thenAccept(chunk -> {
                         getLogger().info("Loaded lazy chunk " + x + "," + z + " (memory low)");
                     }).exceptionally(throwable -> {
@@ -272,13 +261,10 @@ public final class LazychunkMain extends JavaPlugin implements Listener {
                 }
             }
         }
-        // Clear cooldowns as well
         cooldownChunks.clear();
     }
 
-    /** Load pending chunks for a specific world when speed recovers (only if memory < 90%) */
     private void forceLoadPendingChunks(World world) {
-        // Do NOT load if memory is critical (>90%)
         if (currentMemoryUsage > MEMORY_CRITICAL) {
             return;
         }
@@ -299,7 +285,6 @@ public final class LazychunkMain extends JavaPlugin implements Listener {
         }
     }
 
-    /** Asynchronously load a chunk with retry logic */
     private void loadChunkAsync(World world, int x, int z, String key, boolean isTimeout) {
         CompletableFuture<Chunk> future = world.getChunkAtAsync(x, z);
         future.thenAccept(chunk -> {
@@ -320,7 +305,6 @@ public final class LazychunkMain extends JavaPlugin implements Listener {
         });
     }
 
-    /** Trim unloadedChunks by removing oldest 10% and force loading them */
     private void trimUnloadedChunks() {
         List<Map.Entry<String, ChunkRecord>> entries = new ArrayList<>(unloadedChunks.entrySet());
         entries.sort(Comparator.comparingLong(e -> e.getValue().timestamp));
@@ -336,11 +320,9 @@ public final class LazychunkMain extends JavaPlugin implements Listener {
                 if (world != null) {
                     int x = Integer.parseInt(parts[1]);
                     int z = Integer.parseInt(parts[2]);
-                    // Only load if memory allows
                     if (currentMemoryUsage <= MEMORY_CRITICAL) {
                         world.getChunkAtAsync(x, z);
                     } else {
-                        // If memory critical, just discard the record (chunk remains unloaded)
                         getLogger().info("Dropped lazy chunk record " + key + " due to memory critical");
                     }
                 }
